@@ -1,0 +1,38 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>NaVisu4D – Démo CZML</title>
+  <link href="https://unpkg.com/cesium/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+  <script src="https://unpkg.com/cesium/Build/Cesium/Cesium.js"></script>
+  <style>html,body,#cesium{width:100%;height:100%;margin:0;padding:0}</style>
+</head>
+<body>
+  <div id="cesium"></div>
+<script>
+  const viewer = new Cesium.Viewer('cesium', {
+    timeline: true,
+    animation: true,
+    shouldAnimate: true,
+    baseLayerPicker: false
+  });
+
+  // Fond (optionnel). Si tu veux que ça charge vite, commente ces 2 lignes.
+  viewer.imageryLayers.removeAll();
+  viewer.imageryLayers.addImageryProvider(new Cesium.OpenStreetMapImageryProvider());
+
+  viewer.dataSources.removeAll();
+
+ Cesium.CzmlDataSource.load('./parcels_hycom_bretagne_23h_animated.czml')
+
+
+    .then(ds => {
+      viewer.dataSources.add(ds);
+      return viewer.zoomTo(ds);
+    })
+    .catch(err => console.error("ERREUR CZML:", err));
+</script>
+
+
+</body>
+</html>
