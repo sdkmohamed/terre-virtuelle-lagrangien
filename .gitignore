@@ -1,23 +1,14 @@
-# Python
+# données lourdes
+data/
+
+# outputs
+output/
+*.zarr
+
+# czml généré
+*.czml
+
+# python
+.venv/
 __pycache__/
 *.pyc
-*.pyo
-*.pyd
-*.egg-info/
-dist/
-build/
-
-# venv
-.venv/
-venv/
-
-# outputs lourds
-output/
-*.zarr/
-*.czml
-*.png
-
-# OS / IDE
-.DS_Store
-.vscode/
-.idea/

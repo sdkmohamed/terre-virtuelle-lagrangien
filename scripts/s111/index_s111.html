@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8"/>
+  <title>NaVisu4D – Trajectoires S-111</title>
+  <link href="https://unpkg.com/cesium/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+  <script src="https://unpkg.com/cesium/Build/Cesium/Cesium.js"></script>
+  <style>
+    html, body, #cesium { width: 100%; height: 100%; margin: 0; padding: 0; }
+    #toolbar {
+      position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+      z-index: 999; background: rgba(0,0,0,0.6); padding: 8px 16px;
+      border-radius: 8px; color: white; font-family: sans-serif;
+      display: flex; gap: 12px; align-items: center;
+    }
+    #toolbar button {
+      background: #0088cc; color: white; border: none;
+      padding: 6px 12px; border-radius: 4px; cursor: pointer;
+    }
+    #toolbar button:hover { background: #005fa3; }
+    #info {
+      position: absolute; bottom: 40px; left: 10px; z-index: 999;
+      background: rgba(0,0,0,0.55); color: #ddf; padding: 8px 12px;
+      border-radius: 6px; font-family: monospace; font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+<div id="cesium"></div>
+
+<!-- Barre d'outils -->
+<div id="toolbar">
+  <span>🌊 Trajectoires S-111</span>
+  <button onclick="loadStatic()">Statique</button>
+  <button onclick="loadAnimated()">Animé</button>
+  <button onclick="viewer.dataSources.removeAll()">Effacer</button>
+</div>
+
+<!-- Info bas-gauche -->
+<div id="info">Cliquez sur Statique ou Animé pour charger les trajectoires.</div>
+
+<script>
+  // --------------------------------------------------------
+  // Initialisation Cesium
+  // --------------------------------------------------------
+  const viewer = new Cesium.Viewer('cesium', {
+    timeline:       true,
+    animation:      true,
+    shouldAnimate:  false,
+    baseLayerPicker: false,
+    geocoder:       false,
+    homeButton:     true,
+    sceneModePicker: true,
+  });
+
+  // Fond OpenStreetMap
+  viewer.imageryLayers.removeAll();
+  viewer.imageryLayers.addImageryProvider(
+    new Cesium.OpenStreetMapImageryProvider({
+      url: 'https://tile.openstreetmap.org/'
+    })
+  );
+
+  const info = document.getElementById('info');
+
+  // --------------------------------------------------------
+  // Chargement CZML statique
+  // --------------------------------------------------------
+  function loadStatic() {
+    viewer.dataSources.removeAll();
+    info.textContent = '⏳ Chargement statique…';
+    // ⚠️ Adaptez le nom de fichier si nécessaire
+    Cesium.CzmlDataSource.load('./parcels_s111_23h_static.czml')
+      .then(ds => {
+        viewer.dataSources.add(ds);
+        viewer.zoomTo(ds);
+        info.textContent = '✅ Trajectoires S-111 statiques chargées.';
+      })
+      .catch(err => {
+        console.error(err);
+        info.textContent = '❌ Erreur : ' + err.message;
+      });
+  }
+
+  // --------------------------------------------------------
+  // Chargement CZML animé
+  // --------------------------------------------------------
+  function loadAnimated() {
+    viewer.dataSources.removeAll();
+    info.textContent = '⏳ Chargement animé…';
+    // ⚠️ Adaptez le nom de fichier si nécessaire
+    Cesium.CzmlDataSource.load('./parcels_s111_23h_animated.czml')
+      .then(ds => {
+        viewer.dataSources.add(ds);
+        viewer.zoomTo(ds);
+        viewer.clock.shouldAnimate = true;
+        info.textContent = '▶️  Simulation animée — utilisez la timeline.';
+      })
+      .catch(err => {
+        console.error(err);
+        info.textContent = '❌ Erreur : ' + err.message;
+      });
+  }
+</script>
+</body>
+</html>

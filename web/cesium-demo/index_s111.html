@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>NaVisu4D – S-111 Baie de Seine</title>
+  <link href="https://unpkg.com/cesium/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+  <script src="https://unpkg.com/cesium/Build/Cesium/Cesium.js"></script>
+  <style>
+    html, body, #cesium { width: 100%; height: 100%; margin: 0; padding: 0; }
+    #toolbar {
+      position: absolute; top: 10px; left: 50%;
+      transform: translateX(-50%); z-index: 999;
+      background: rgba(0,0,0,0.65); padding: 8px 18px;
+      border-radius: 8px; color: white;
+      font-family: sans-serif; font-size: 13px;
+      display: flex; gap: 10px; align-items: center;
+    }
+    #toolbar button {
+      background: #0077bb; color: white; border: none;
+      padding: 6px 14px; border-radius: 5px;
+      cursor: pointer; font-size: 13px;
+    }
+    #toolbar button:hover { background: #005599; }
+    #status {
+      position: absolute; bottom: 40px; left: 12px; z-index: 999;
+      background: rgba(0,0,0,0.55); color: #aef;
+      padding: 7px 12px; border-radius: 6px;
+      font-family: monospace; font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+<div id="cesium"></div>
+
+<div id="toolbar">
+  🌊 S-111 – Baie de Seine
+  <button onclick="loadAnimated()">▶ Animé</button>
+  <button onclick="loadStatic()">📍 Statique</button>
+  <button onclick="clear_()">✕ Effacer</button>
+</div>
+
+<div id="status">Cliquez sur ▶ Animé ou 📍 Statique</div>
+
+<script>
+  const viewer = new Cesium.Viewer('cesium', {
+    timeline:        true,
+    animation:       true,
+    shouldAnimate:   false,
+    baseLayerPicker: false,
+    geocoder:        false,
+    homeButton:      true,
+    sceneModePicker: true,
+  });
+
+  viewer.imageryLayers.removeAll();
+  viewer.imageryLayers.addImageryProvider(
+    new Cesium.OpenStreetMapImageryProvider({
+      url: 'https://tile.openstreetmap.org/'
+    })
+  );
+
+  const status = document.getElementById('status');
+
+  function clear_() {
+    viewer.dataSources.removeAll();
+    viewer.clock.shouldAnimate = false;
+    status.textContent = 'Données effacées.';
+  }
+
+  function loadAnimated() {
+    clear_();
+    status.textContent = '⏳ Chargement animé…';
+    Cesium.CzmlDataSource.load('./parcels_s111_72h_animated.czml')
+      .then(ds => {
+        viewer.dataSources.add(ds);
+        viewer.clock.shouldAnimate = true;
+        return viewer.zoomTo(ds);
+      })
+      .then(() => { status.textContent = '▶ Animation S-111 en cours – utilisez la timeline.'; })
+      .catch(err => { status.textContent = '❌ ' + err.message; console.error(err); });
+  }
+
+  function loadStatic() {
+    clear_();
+    status.textContent = '⏳ Chargement statique…';
+    Cesium.CzmlDataSource.load('./parcels_s111_72h_static.czml')
+      .then(ds => {
+        viewer.dataSources.add(ds);
+        return viewer.zoomTo(ds);
+      })
+      .then(() => { status.textContent = '📍 Trajectoires S-111 statiques chargées.'; })
+      .catch(err => { status.textContent = '❌ ' + err.message; console.error(err); });
+  }
+
+  // Charge l'animé par défaut au démarrage
+  loadAnimated();
+</script>
+</body>
+</html>
