@@ -4,9 +4,14 @@
 ------------------
 Simulation lagrangienne S-111 (HDF5) -> Parcels 3.1.4 -> .zarr
 
-CORRECTION CRITIQUE : les vitesses S-111 sont en m/s.
-Avec mesh="flat", Parcels attend des deg/s.
-On convertit donc u,v : m/s -> deg/s avant de creer le FieldSet.
+mesh="flat" + vitesses converties en deg/s :
+  - physiquement equivalent a mesh="spherical" + m/s
+  - la conversion cos(lat) est faite explicitement avant le FieldSet
+  - evite le conflit entre Parcels et notre kernel custom (double correction)
+
+Formule :
+  u_degs = u_ms / (111320 * cos(lat_moy))   [deg/s Est-Ouest]
+  v_degs = v_ms / 111320                     [deg/s Nord-Sud]
 """
 
 from pathlib import Path
@@ -34,22 +39,21 @@ OUT.mkdir(exist_ok=True)
 
 h5_files = list(DATA.glob("*.h5")) + list(DATA.glob("*.hdf5"))
 if not h5_files:
-    raise FileNotFoundError(f"Aucun fichier HDF5 trouve dans {DATA}")
+    raise FileNotFoundError(f"Aucun fichier HDF5 trouvé dans {DATA}")
 H5_FILE = h5_files[0]
 
 # ========================================================== #
-# Parametres                                                  #
+# Paramètres                                                  #
 # ========================================================== #
 BBOX       = None
-N_PART     = 140
+N_PART     = 30
 RNG_SEED   = 42
 DT_MINUTES = 10
 HOURS      = 72
 
 # ========================================================== #
-# Kernel RK4 en syntaxe Parcels 3.x                          #
-# Les vitesses etant en deg/s apres conversion,              #
-# le kernel est une addition directe (pas de facteur cos).   #
+# Kernel RK4 + OOB — syntaxe Parcels 3.x                     #
+# Vitesses en deg/s, mesh=flat -> addition directe           #
 # ========================================================== #
 def RK4_safe(particle, fieldset, time):
     lon_min = fieldset.U.grid.lon[0]
@@ -92,77 +96,62 @@ def RK4_safe(particle, fieldset, time):
             particle.lat < lat_min or particle.lat > lat_max):
         particle.delete()
 
+
 # ========================================================== #
 # 1. Lecture S-111                                            #
 # ========================================================== #
 print("=" * 60)
 print("ETAPE 1 - Lecture du fichier S-111")
 print("=" * 60)
-
 data = load_s111(H5_FILE, bbox=BBOX, verbose=True)
-
-lon2d  = data["lon"]
-lat2d  = data["lat"]
-u_ms   = data["u"]    # m/s
-v_ms   = data["v"]    # m/s
-times  = data["times"]
-
+lon2d = data["lon"]; lat2d = data["lat"]
+u_ms  = data["u"];   v_ms  = data["v"];  times = data["times"]
 nt, ny, nx = u_ms.shape
 duration_hours = float((times[-1] - times[0]) / np.timedelta64(1, "h"))
-print(f"\nDuree disponible : {duration_hours:.1f} h")
+print(f"\nDurée disponible : {duration_hours:.1f} h")
 
 # ========================================================== #
-# 2. Conversion m/s -> deg/s                                  #
+# 2. Conversion m/s -> deg/s (projection sphérique explicite)#
 # ========================================================== #
 print("\n" + "=" * 60)
-print("ETAPE 2 - Conversion vitesses m/s -> deg/s")
+print("ETAPE 2 - Conversion m/s -> deg/s (projection cos lat)")
 print("=" * 60)
 
-# Latitude moyenne du domaine
-lat_mean = float(np.nanmean(lat2d))
+lat_mean      = float(np.nanmean(lat2d))
+cos_lat       = float(np.cos(np.radians(lat_mean)))
 m_per_deg_lat = 111320.0
-m_per_deg_lon = 111320.0 * np.cos(np.radians(lat_mean))
+m_per_deg_lon = 111320.0 * cos_lat
 
-print(f"Latitude moyenne : {lat_mean:.3f} deg")
-print(f"1 deg lat = {m_per_deg_lat:.0f} m")
-print(f"1 deg lon = {m_per_deg_lon:.0f} m")
+u_degs = u_ms / m_per_deg_lon
+v_degs = v_ms / m_per_deg_lat
 
-# Conversion : divise par les metres par degre
-u_degs = u_ms / m_per_deg_lon   # deg/s (est-ouest)
-v_degs = v_ms / m_per_deg_lat   # deg/s (nord-sud)
-
-print(f"Plage U apres conversion : [{np.nanmin(u_degs):.2e}, {np.nanmax(u_degs):.2e}] deg/s")
-print(f"Plage V apres conversion : [{np.nanmin(v_degs):.2e}, {np.nanmax(v_degs):.2e}] deg/s")
-print(f"Deplacement max (dt={DT_MINUTES}min) : {np.nanmax(np.abs(u_degs))*DT_MINUTES*60:.5f} deg")
+print(f"  Latitude moyenne      : {lat_mean:.3f}°")
+print(f"  cos(lat)              : {cos_lat:.6f}")
+print(f"  1° lon                : {m_per_deg_lon:.1f} m")
+print(f"  1° lat                : {m_per_deg_lat:.1f} m")
+print(f"  Déplacement max 10min : {np.nanmax(np.abs(u_degs))*600:.5f}°  "
+      f"= {np.nanmax(np.abs(u_ms))*600:.0f} m  ✓")
 
 # ========================================================== #
-# 3. xarray Dataset avec vitesses converties                  #
+# 3. xarray Dataset                                           #
 # ========================================================== #
 print("\n" + "=" * 60)
 print("ETAPE 3 - Dataset xarray")
 print("=" * 60)
-
-lons_1d = lon2d[0, :]
-lats_1d = lat2d[:, 0]
-
+lons_1d = lon2d[0, :]; lats_1d = lat2d[:, 0]
 ds_xr = xr.Dataset(
-    {
-        "u": xr.DataArray(u_degs, dims=["time", "lat", "lon"],
-                          attrs={"units": "deg s-1"}),
-        "v": xr.DataArray(v_degs, dims=["time", "lat", "lon"],
-                          attrs={"units": "deg s-1"}),
-    },
+    {"u": xr.DataArray(u_degs, dims=["time","lat","lon"], attrs={"units":"deg s-1"}),
+     "v": xr.DataArray(v_degs, dims=["time","lat","lon"], attrs={"units":"deg s-1"})},
     coords={"time": times, "lat": lats_1d, "lon": lons_1d}
 )
 print(ds_xr)
 
 # ========================================================== #
-# 4. FieldSet (mesh=flat car vitesses en deg/s)               #
+# 4. FieldSet — mesh="flat"                                  #
 # ========================================================== #
 print("\n" + "=" * 60)
-print("ETAPE 4 - FieldSet")
+print("ETAPE 4 - FieldSet (mesh=flat, u/v en deg/s)")
 print("=" * 60)
-
 fieldset = FieldSet.from_xarray_dataset(
     ds_xr,
     variables={"U": "u", "V": "v"},
@@ -170,26 +159,33 @@ fieldset = FieldSet.from_xarray_dataset(
     mesh="flat",
     allow_time_extrapolation=True,
 )
-print("FieldSet cree")
+print("FieldSet créé")
 
 # ========================================================== #
-# 5. Particules                                               #
+# 5. Particules — grille régulière structurée                #
 # ========================================================== #
 print("\n" + "=" * 60)
-print("ETAPE 5 - Initialisation des particules")
+print("ETAPE 5 - Initialisation des particules (grille reguliere)")
 print("=" * 60)
 
-u0 = u_ms[0]
-iy, ix = np.where(np.isfinite(u0))
-n = min(N_PART, len(iy))
-rng = np.random.default_rng(RNG_SEED)
-sel = rng.choice(len(iy), size=n, replace=False)
-lons0 = lon2d[iy[sel], ix[sel]]
-lats0 = lat2d[iy[sel], ix[sel]]
+# Grille reguliere NX x NY couvrant le domaine (avec marge)
+NX, NY = 6, 5   # 6 colonnes x 5 lignes = 30 particules
+lon_margin = (lon2d[0,-1] - lon2d[0,0]) * 0.08
+lat_margin = (lat2d[-1,0] - lat2d[0,0]) * 0.10
+lons_grid = np.linspace(lon2d[0,0]  + lon_margin,
+                        lon2d[0,-1] - lon_margin, NX)
+lats_grid = np.linspace(lat2d[0,0]  + lat_margin,
+                        lat2d[-1,0] - lat_margin, NY)
+lon_mesh, lat_mesh = np.meshgrid(lons_grid, lats_grid)
+lons0 = lon_mesh.flatten()
+lats0 = lat_mesh.flatten()
+
+print(f"Grille {NY} x {NX} = {len(lons0)} particules")
+print(f"Lon : [{lons0.min():.3f}, {lons0.max():.3f}]")
+print(f"Lat : [{lats0.min():.3f}, {lats0.max():.3f}]")
 
 pset = ParticleSet.from_list(
-    fieldset=fieldset,
-    pclass=ScipyParticle,
+    fieldset=fieldset, pclass=ScipyParticle,
     lon=lons0, lat=lats0,
 )
 print(f"ParticleSet : {len(pset)} particules")
@@ -200,20 +196,12 @@ print(f"ParticleSet : {len(pset)} particules")
 print("\n" + "=" * 60)
 print("ETAPE 6 - Simulation RK4")
 print("=" * 60)
-
 hours_to_run = min(duration_hours, float(HOURS))
 out_zarr = OUT / f"parcels_s111_{int(hours_to_run)}h.zarr"
-
 if out_zarr.exists():
     shutil.rmtree(out_zarr)
-
-pfile = pset.ParticleFile(
-    name=str(out_zarr),
-    outputdt=timedelta(minutes=10),
-)
-
-print(f"Simulation de {hours_to_run:.0f}h avec {len(pset)} particules...")
-
+pfile = pset.ParticleFile(name=str(out_zarr), outputdt=timedelta(minutes=10))
+print(f"Simulation {hours_to_run:.0f}h — {len(pset)} particules...")
 pset.execute(
     pset.Kernel(RK4_safe),
     runtime=timedelta(hours=hours_to_run),
@@ -221,6 +209,5 @@ pset.execute(
     output_file=pfile,
     verbose_progress=True,
 )
-
-print(f"\nSimulation terminee !")
+print(f"\nSimulation terminée !")
 print(f"Sortie : {out_zarr}")
