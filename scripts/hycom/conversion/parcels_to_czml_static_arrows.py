@@ -10,8 +10,9 @@ import xarray as xr
 import json
 import numpy as np
 
-ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT.parent / "output"
+PROJECT = Path(__file__).resolve().parents[3]
+
+OUT = PROJECT / "output"
 
 ZARR_FILE = OUT / "parcels_hycom_bretagne_23h.zarr"
 CZML_FILE = OUT / "parcels_hycom_bretagne_23h_static_arrows.czml"
